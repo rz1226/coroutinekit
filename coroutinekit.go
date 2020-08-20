@@ -41,8 +41,10 @@ var defaultco *CoroutineKit
 func init() {
 	defaultco = newCoroutineKit()
 }
-func Start(name string, num int, f func(), panicRestart bool) {
-	defaultco.start(name, num, f, panicRestart)
+
+// name=说明  num启动数量  f启动函数  panicRestart异常退出后是否重启  loop正常退出后是否再次调用
+func Start(name string, num int, f func(), panicRestart bool, loop bool) {
+	defaultco.start(name, num, f, panicRestart, loop)
 }
 func Show() string {
 	return defaultco.showAll()
@@ -63,8 +65,8 @@ func newCoroutineKit() *CoroutineKit {
 	return ck
 }
 
-// 加入goroutine，1 名称，不要重复，重复会报错，2 启动多少个goroutine 3 执行函数  4 遇到panic后是否要重新启动
-func (ck *CoroutineKit) start(name string, num int, f func(), panicRestart bool) {
+// 加入goroutine，1 名称，不要重复，重复会报错，2 启动多少个goroutine 3 执行函数  4 遇到panic后是否要重新启动 5 loop 是否循环
+func (ck *CoroutineKit) start(name string, num int, f func(), panicRestart bool, loop bool) {
 	ck.mu.Lock()
 	defer ck.mu.Unlock()
 	name = strings.TrimSpace(name)
@@ -74,7 +76,7 @@ func (ck *CoroutineKit) start(name string, num int, f func(), panicRestart bool)
 		fmt.Println("coroutinekit start error :duplicated name")
 		return
 	}
-	node := newNode(ck, name, num, f, panicRestart)
+	node := newNode(ck, name, num, f, panicRestart, loop)
 	ck.nodes = append(ck.nodes, node)
 	ck.nodeNames[name] = node
 	node.start() // 启动
@@ -96,11 +98,12 @@ type Node struct {
 	runnings     []*Routine
 	f            func()
 	panicRestart bool
+	loop         bool
 	father       *CoroutineKit
 	mu           *sync.Mutex
 }
 
-func newNode(father *CoroutineKit, name string, num int, f func(), panicRestart bool) *Node {
+func newNode(father *CoroutineKit, name string, num int, f func(), panicRestart bool, loop bool) *Node {
 	if num <= 0 {
 		num = 1
 	}
@@ -111,6 +114,7 @@ func newNode(father *CoroutineKit, name string, num int, f func(), panicRestart 
 	n.name = name
 	n.f = f
 	n.panicRestart = panicRestart
+	n.loop = loop
 	n.father = father
 	n.mu = &sync.Mutex{}
 	n.runnings = make([]*Routine, num)
@@ -191,6 +195,7 @@ func (n *Node) startOne(goroutineNo int) {
 }
 
 const PANICSLEEPMILLTIME = 100
+const LOOPSLEEPMILLTIME = 100
 
 // 发生panic的时候
 func (n *Node) setPanic(no int, info string) {
@@ -215,6 +220,10 @@ func (n *Node) setOut(no int) {
 	defer p.mu.Unlock()
 	p.status = STATUSOUT
 	p.endTime = time.Now().Format("2006-01-02 15:04:05")
+	if n.loop {
+		time.Sleep(time.Millisecond * LOOPSLEEPMILLTIME)
+		n.startOne(no)
+	}
 }
 
 // 开始运行
